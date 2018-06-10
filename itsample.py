@@ -6,6 +6,8 @@ from scipy.integrate import quad
 from scipy.optimize import root
 from numpy.random import uniform
 
+from numpy.polynomial.chebyshev import chebfit, chebval, chebint
+
 # Functions to check if a numerical quadrature is convergent
 
 _MESSAGE = "The integral is probably divergent, or slowly convergent."
@@ -99,8 +101,56 @@ def get_cdf(pdf, lower_bd=-np.inf, upper_bd=np.inf):
 
     return cdf_vector
 
+############################################
+### CHEBYSHEV APPROXIMATION OF PDF & CDF ###
+############################################
 
-def sample(pdf, num_samples, lower_bd=-np.inf, upper_bd=np.inf, guess=0):
+# This section follows the work of Olver & Townsend (2013), who suggest using
+# Chebyshev polynomials to approximate the PDF. This allows for trivial
+# construction of the CDF, as these polynomials can be integrated in closed
+# form.
+
+
+def _chebnodes(a,b,n):
+    """Chebyshev nodes of rank n on interal [a,b]."""
+    if not a < b:
+        raise ValueError('Lower bound must be less than upper bound.')
+    return np.array([1/2*((a+b)+(b-a)*np.cos((2*k-1)*np.pi/(2*n))) for k in range(1,n+1)])
+
+
+def adaptive_chebfit(pdf, lower_bd, upper_bd, eps=10**(-15)):
+    """Fit a chebyshev polynomial, increasing sampling rate until coefficient
+    tail falls below provided tolerance."""
+    i = 4
+    error = eps+1 # so that it runs the first time through
+    while error > eps:
+        n = 2**i + 1
+        x = _chebnodes(lower_bd,upper_bd,n)
+        y = pdf(x)
+        coeffs = chebfit(x,y,n-1)
+        error = max(np.abs(coeffs[-5:]))
+        i += 1
+    return x,coeffs
+    
+
+def chebcdf(pdf, lower_bd, upper_bd, eps=10**(-15)):
+    """Get Chebyshev approximation of the CDF."""
+    if not (np.isfinite(lower_bd) and np.isfinite(upper_bd)):
+        raise ValueError('Bounds must be finite.')
+    if not lower_bd < upper_bd:
+        raise ValueError('Lower bound must be less than upper bound.')
+
+    x,coeffs = adaptive_chebfit(pdf, lower_bd, upper_bd, eps)
+    int_coeffs = chebint(coeffs)
+    # offset and scale so that it goes from 0 to 1, i.e. is a true CDF.
+    offset = chebval(lower_bd, int_coeffs)
+    scale = chebval(upper_bd, int_coeffs) - chebval(lower_bd, int_coeffs)
+    cdf = lambda x: (chebval(x,int_coeffs) - offset) / scale
+    return cdf
+
+# Sample via root-finding on CDF
+
+def sample(pdf, num_samples, lower_bd=-np.inf, upper_bd=np.inf, guess=0, chebyshev=False):
     """Sample from an arbitrary, unnormalized PDF.
     
     Parameters
@@ -137,8 +187,11 @@ def sample(pdf, num_samples, lower_bd=-np.inf, upper_bd=np.inf, guess=0):
     the CDF over some reasonable grid, then use this grid for solving.
 
     """
-    cdf = get_cdf(pdf,lower_bd,upper_bd)
-    seeds = uniform(0,1,num_samples)
+    if chebyshev:
+        cdf = chebcdf(pdf, lower_bd, upper_bd)
+    else:
+        cdf = get_cdf(pdf, lower_bd, upper_bd)
+    seeds = uniform(0, 1, num_samples)
     samples = []
     for seed in seeds:
         shifted = lambda x: cdf(x)-seed
