@@ -1,4 +1,4 @@
-# inverse-transform-sample v1.0
+# inverse-transform-sample v1.1
  
 inverse-transform-sample is a simple Python implementation of a technique that allows for sampling from arbitrary probability density functions.
  
@@ -26,7 +26,22 @@ For more details, see `example.ipynb`.
 
 ## Notes
 
-Inverse transform sampling is slow; the example above takes ~3 ms per sample, or ~3 seconds to generate 1000 samples. Computational simplicity is emphasized here; although more computationally efficient approaches to inverting the CDF exist, we opt for the one that is the simplest to code. If one wishes to generate over 100,000 samples, then this library will be prohibitively slow (although adaptations to parallelize the functionality would be quite simple to implement).
+### Approximation with Chebyshev Polynomials
+
+Inverse transform sampling is slow, at two points:
+
+1. The PDF must be integrated to build the CDF, and this must in general be done numerically.
+2. The CDF must then be inverted in order to perform the sampling; this root-finding requires multiple evaluations of the CDF, which can amount to multiple calls to a numerical integration routine.
+
+[Olver & Townsend](https://arxiv.org/pdf/1307.1223.pdf) address this issue by proposing the use of Chebyshev polynomials to approximate the PDF. The advantage of this is that once the Chebyshev approximation of the PDF is calculated, the CDF is known in closed form, since integration of the polynomials can be done algebraically. 
+
+In practice, however, a call to a Chebyshev-based CDF is not much faster than a call to a quadrature-based CDF **unless one is performing a vectorized call over many inputs simultaneously**. Sadly, the root-finders that are included with scipy are not vectorized in a way to take advantage of this fact, and so our Chebyshev sampling approach does not significantly increase the speed of sampling.
+
+### Timing
+
+Inverse transform sampling is slow; the example above takes ~3 ms per sample, or ~3 seconds to generate 1000 samples, if one uses the quadrature method (i.e. using the option `chebyshev=False`.) Computational simplicity is emphasized here; although more computationally efficient approaches to inverting the CDF exist, we opt for the one that is the simplest to code. 
+
+Using Chebyshev polynomials to build and invert the CDF increases the speed of sampling by a factor of 2 or so; however, we were hoping for two *orders of magnitude*, which is what we would need for this approach to be useful in large-scale scientific applications. If one wishes to generate over 100,000 samples, then this library will be prohibitively slow (although adaptations to parallelize the functionality would be quite simple to implement).
  
 ## Contributing
  

@@ -120,7 +120,37 @@ def _chebnodes(a,b,n):
 
 def adaptive_chebfit(pdf, lower_bd, upper_bd, eps=10**(-15)):
     """Fit a chebyshev polynomial, increasing sampling rate until coefficient
-    tail falls below provided tolerance."""
+    tail falls below provided tolerance.
+    
+    Parameters
+    ----------
+    pdf : function, float -> float
+        The probability density function (not necessarily normalized). Must take
+        floats or ints as input, and return floats as an output.
+    lower_bd : float
+        Lower bound of the support of the pdf. This parameter allows one to
+        manually establish cutoffs for the density.
+    upper_bd : float
+        Upper bound of the support of the pdf.
+    eps: float
+        Error tolerance of Chebyshev polynomial fit of PDF.
+
+    Returns
+    -------
+    x : array
+        The nodes at which the polynomial interpolation takes place. These are
+        adaptively chosen based on the provided tolerance.
+    coeffs : array
+        Coefficients in Chebyshev approximation of the PDF.
+
+    Notes
+    -----
+    This fit defines the "error" as the magnitude of the tail of the Chebyshev
+    coefficients. Computing the true error (i.e. discrepancy between the PDF and
+    it's approximant) would be much slower, so we avoid it and use this rough
+    approximation in its place.
+
+    """
     i = 4
     error = eps+1 # so that it runs the first time through
     while error > eps:
@@ -134,7 +164,28 @@ def adaptive_chebfit(pdf, lower_bd, upper_bd, eps=10**(-15)):
     
 
 def chebcdf(pdf, lower_bd, upper_bd, eps=10**(-15)):
-    """Get Chebyshev approximation of the CDF."""
+    """Get Chebyshev approximation of the CDF.
+    
+    Parameters
+    ----------
+    pdf : function, float -> float
+        The probability density function (not necessarily normalized). Must take
+        floats or ints as input, and return floats as an output.
+    lower_bd : float
+        Lower bound of the support of the pdf. This parameter allows one to
+        manually establish cutoffs for the density.
+    upper_bd : float
+        Upper bound of the support of the pdf.
+    eps: float
+        Error tolerance of Chebyshev polynomial fit of PDF.
+    
+    Returns
+    -------
+    cdf : function
+        The cumulative density function of the (normalized version of the)
+        provided pdf. The function cdf() takes an iterable of floats or doubles
+        as an argument, and returns an iterable of floats of the same length.
+    """
     if not (np.isfinite(lower_bd) and np.isfinite(upper_bd)):
         raise ValueError('Bounds must be finite.')
     if not lower_bd < upper_bd:
@@ -167,6 +218,8 @@ def sample(pdf, num_samples, lower_bd=-np.inf, upper_bd=np.inf, guess=0, chebysh
         Upper bound of the support of the pdf.
     guess : float or int
         Initial guess for the numerical solver to use when inverting the CDF.
+    chebyshev: Boolean, optional (default=False)
+        If True, then the CDF is approximated using Chebyshev polynomials.
     
     Returns
     -------
@@ -183,11 +236,14 @@ def sample(pdf, num_samples, lower_bd=-np.inf, upper_bd=np.inf, guess=0, chebysh
 
     This sampling technique is slow (~3 ms/sample for a unit normal with initial
     guess of 0), since we re-integrate to get the CDF at every iteration of the
-    numerical root-finder. A much faster approach would intelligently establish
-    the CDF over some reasonable grid, then use this grid for solving.
+    numerical root-finder. This is improved somewhat by using Chebyshev
+    approximations of the CDF, but the sampling rate is still prohibitively slow
+    for >100k samples.
 
     """
     if chebyshev:
+        if not (np.isfinite(lower_bd) and np.isfinite(upper_bd)):
+            raise ValueError('Bounds must be finite for Chebyshev approximation of CDF.')
         cdf = chebcdf(pdf, lower_bd, upper_bd)
     else:
         cdf = get_cdf(pdf, lower_bd, upper_bd)
